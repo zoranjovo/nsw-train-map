@@ -111,22 +111,26 @@ export const readTfnswVehicleExtensions = (
 ): Map<string, TfnswVehicleExtension> => {
   const extensionsByEntityId = new Map<string, TfnswVehicleExtension>();
 
-  for (const entity of readFields(binary, 0, binary.length)) {
-    if (!isMessageField(entity, FEED_MESSAGE_ENTITY)) continue;
+  try {
+    for (const entity of readFields(binary, 0, binary.length)) {
+      if (!isMessageField(entity, FEED_MESSAGE_ENTITY)) continue;
 
-    let entityId: string | null = null;
-    let extension: TfnswVehicleExtension | null = null;
-    for (const field of readFields(binary, entity.start, entity.end)) {
-      if (isMessageField(field, FEED_ENTITY_ID)) {
-        entityId = textDecoder.decode(binary.subarray(field.start, field.end));
-      } else if (isMessageField(field, FEED_ENTITY_VEHICLE)) {
-        extension = readVehiclePosition(binary, field);
+      let entityId: string | null = null;
+      let extension: TfnswVehicleExtension | null = null;
+      for (const field of readFields(binary, entity.start, entity.end)) {
+        if (isMessageField(field, FEED_ENTITY_ID)) {
+          entityId = textDecoder.decode(binary.subarray(field.start, field.end));
+        } else if (isMessageField(field, FEED_ENTITY_VEHICLE)) {
+          extension = readVehiclePosition(binary, field);
+        }
+      }
+
+      if (entityId != null && extension != null) {
+        extensionsByEntityId.set(entityId, extension);
       }
     }
-
-    if (entityId != null && extension != null) {
-      extensionsByEntityId.set(entityId, extension);
-    }
+  } catch {
+    // The extensions are optional extras, so keep what was read rather than failing the whole feed
   }
 
   return extensionsByEntityId;
