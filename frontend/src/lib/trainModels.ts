@@ -39,13 +39,14 @@ export const trainModelUrl = (id: string, variant: TrainModelVariant = "driving"
 
 const loadModel = (id: string, variant: TrainModelVariant): Promise<Group> => {
   const url = trainModelUrl(id, variant);
-  let model = modelsById.get(url);
-  if (!model) {
-    model = getLoader()
-      .then((gltfLoader) => gltfLoader.loadAsync(url))
-      .then((gltf) => gltf.scene);
-    modelsById.set(url, model);
-  }
+  const cached = modelsById.get(url);
+  if (cached) return cached;
+
+  const model = getLoader()
+    .then((gltfLoader) => gltfLoader.loadAsync(url))
+    .then((gltf) => gltf.scene);
+  modelsById.set(url, model);
+  model.catch(() => modelsById.delete(url));
   return model;
 };
 

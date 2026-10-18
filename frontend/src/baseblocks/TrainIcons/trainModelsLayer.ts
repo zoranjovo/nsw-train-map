@@ -75,6 +75,7 @@ type PlacedTrain = {
 
 export type TrainModelsLayer = {
   layer: CustomLayerInterface;
+  isDrawn: (key: string) => boolean;
   destroy: () => void;
 };
 
@@ -124,14 +125,15 @@ const consistModelsByFleet = new Map<string, Promise<ConsistModels>>();
 
 const loadConsistModels = (fleetCode: string | null): Promise<ConsistModels> => {
   const key = fleetCode ?? "";
-  let models = consistModelsByFleet.get(key);
-  if (!models) {
-    models = Promise.all([
-      loadCarModel(fleetCode, "driving-lod"),
-      loadCarModel(fleetCode, "intermediate-lod"),
-    ]).then(([driving, intermediate]) => ({ driving, intermediate }));
-    consistModelsByFleet.set(key, models);
-  }
+  const cached = consistModelsByFleet.get(key);
+  if (cached) return cached;
+
+  const models = Promise.all([
+    loadCarModel(fleetCode, "driving-lod"),
+    loadCarModel(fleetCode, "intermediate-lod"),
+  ]).then(([driving, intermediate]) => ({ driving, intermediate }));
+  consistModelsByFleet.set(key, models);
+  models.catch(() => consistModelsByFleet.delete(key));
   return models;
 };
 
@@ -335,5 +337,10 @@ export const createTrainModelsLayer = (
     displayMaterials.clear();
   };
 
-  return { layer, destroy };
+  const isDrawn = (key: string) =>
+    renderer != null &&
+    map.getZoom() >= TRAIN_MODELS_ON_MAP_SETTINGS.minZoom &&
+    (trains.get(key)?.cars.length ?? 0) > 0;
+
+  return { layer, isDrawn, destroy };
 };

@@ -11,12 +11,7 @@ import {
   TRAIN_ICON_ROW_COUNT,
   TRAIN_ICON_ROWS,
 } from "./trainIconImages";
-import {
-  type GetTrainMarkers,
-  showsModel,
-  type TrainMarker,
-  trainIconSizePx,
-} from "./trainMarkers";
+import { type GetTrainMarkers, type TrainMarker, trainIconSizePx } from "./trainMarkers";
 
 const ATLAS_CELL_PX = 128;
 const ATLAS_GUTTER_PX = 16;
@@ -95,7 +90,7 @@ type GlResources = {
 
 export type TrainMarkersLayer = {
   layer: CustomLayerInterface;
-  hideFromZoom: (minZoom: number | null) => void;
+  hideWhere: (isHidden: ((marker: TrainMarker) => boolean) | null) => void;
 };
 
 const compile = (gl: WebGL2RenderingContext, type: number, source: string): WebGLShader => {
@@ -202,7 +197,7 @@ export const createTrainMarkersLayer = (
   let gl: WebGL2RenderingContext | null = null;
   let resources: GlResources | null = null;
   let instanceData = new Float32Array(FLOATS_PER_INSTANCE * 256);
-  let hiddenFromZoom: number | null = null;
+  let isHidden: ((marker: TrainMarker) => boolean) | null = null;
   const matrix = new Float32Array(16);
 
   const writeInstance = (index: number, marker: TrainMarker, centre: MercatorCoordinate) => {
@@ -234,8 +229,6 @@ export const createTrainMarkersLayer = (
     render: (_gl, options) => {
       if (!gl || !resources) return;
       const zoom = map.getZoom();
-      const modelsShowing = hiddenFromZoom != null && zoom >= hiddenFromZoom;
-
       const markers = getMarkers();
       if (markers.length === 0) return;
       if (instanceData.length < markers.length * FLOATS_PER_INSTANCE) {
@@ -243,14 +236,13 @@ export const createTrainMarkersLayer = (
       }
 
       const centre = MercatorCoordinate.fromLngLat(map.getCenter());
-      const drawsIcon = (marker: TrainMarker) =>
-        marker.isNearView && !(modelsShowing && showsModel(marker));
+      const isShown = (marker: TrainMarker) => marker.isNearView && !isHidden?.(marker);
       let index = 0;
       for (const marker of markers) {
-        if (drawsIcon(marker) && !marker.isSelected) writeInstance(index++, marker, centre);
+        if (!marker.isSelected && isShown(marker)) writeInstance(index++, marker, centre);
       }
       for (const marker of markers) {
-        if (drawsIcon(marker) && marker.isSelected) writeInstance(index++, marker, centre);
+        if (marker.isSelected && isShown(marker)) writeInstance(index++, marker, centre);
       }
       if (index === 0) return;
 
@@ -308,8 +300,8 @@ export const createTrainMarkersLayer = (
 
   return {
     layer,
-    hideFromZoom: (minZoom) => {
-      hiddenFromZoom = minZoom;
+    hideWhere: (hidden) => {
+      isHidden = hidden;
       map.triggerRepaint();
     },
   };

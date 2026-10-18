@@ -21,7 +21,7 @@ import {
 } from "../trainMapLayers";
 import { consistLayout, placeAlongTrain } from "./trainConsist";
 import { FOLLOW_MIN_ZOOM, followStep, isKeyboardPan, isPinch } from "./trainFollow";
-import { pickTrainMarker, showsModel, type TrainMarker, trainIconSizePx } from "./trainMarkers";
+import { pickTrainMarker, type TrainMarker, trainIconSizePx } from "./trainMarkers";
 import { createTrainMarkersLayer, type TrainMarkersLayer } from "./trainMarkersLayer";
 import type { TrainModelsLayer } from "./trainModelsLayer";
 import { trainUpdateIntervalMs } from "./trainUpdateRate";
@@ -70,7 +70,7 @@ export const TrainIcons = () => {
   const markersRef = useRef<TrainMarker[]>([]);
   const lastSampledAtRef = useRef(Number.NEGATIVE_INFINITY);
   const markersLayerRef = useRef<TrainMarkersLayer | null>(null);
-  const modelsMinZoomRef = useRef<number | null>(null);
+  const isModelDrawnRef = useRef<((key: string) => boolean) | null>(null);
 
   const fetchAndCacheTimetables = useCallback(
     async (tripIds: string[]) => {
@@ -241,8 +241,8 @@ export const TrainIcons = () => {
     const pickAt = (point: maplibregl.Point): TrainMarker | null => {
       const zoom = map.getZoom();
       const radius = Math.max(MIN_PICK_RADIUS_PX, trainIconSizePx(zoom) / 2);
-      const showingModels = modelsMinZoomRef.current != null && zoom >= modelsMinZoomRef.current;
-      if (!showingModels) {
+      const isModelDrawn = isModelDrawnRef.current;
+      if (!isModelDrawn) {
         return pickTrainMarker(getMarkers(), point, radius, (marker) => [
           map.project([marker.longitude, marker.latitude]),
         ]);
@@ -250,7 +250,7 @@ export const TrainIcons = () => {
 
       const carRadius = Math.max(radius, MODEL_PICK_HALF_LENGTH_M / metersPerPixel(map));
       return pickTrainMarker(getMarkers(), point, carRadius, (marker) => {
-        if (!showsModel(marker)) return [map.project([marker.longitude, marker.latitude])];
+        if (!isModelDrawn(marker.key)) return [map.project([marker.longitude, marker.latitude])];
         const carCount = consistLayout(marker.fleetCode, marker.carCount).length;
         return Array.from({ length: carCount }, (_, index) => {
           const offset = ((carCount - 1) / 2 - index) * NOMINAL_CAR_LENGTH_M;
@@ -297,16 +297,16 @@ export const TrainIcons = () => {
     let addLayer: (() => void) | null = null;
 
     import("./trainModelsLayer")
-      .then(({ createTrainModelsLayer, TRAIN_MODELS_ON_MAP_SETTINGS }) => {
+      .then(({ createTrainModelsLayer }) => {
         if (cancelled || isMapRemoved(map)) return;
         const layer = createTrainModelsLayer(map, getMarkers);
         modelsLayer = layer;
-        modelsMinZoomRef.current = TRAIN_MODELS_ON_MAP_SETTINGS.minZoom;
+        isModelDrawnRef.current = layer.isDrawn;
 
         addLayer = () => {
           if (isMapRemoved(map)) return;
           if (!map.getLayer(TRAIN_MODELS_LAYER_ID)) map.addLayer(layer.layer);
-          markersLayerRef.current?.hideFromZoom(TRAIN_MODELS_ON_MAP_SETTINGS.minZoom);
+          markersLayerRef.current?.hideWhere((marker) => layer.isDrawn(marker.key));
           syncTrainOverlayLayerOrder(map);
         };
         addLayer();
@@ -316,9 +316,9 @@ export const TrainIcons = () => {
 
     return () => {
       cancelled = true;
-      modelsMinZoomRef.current = null;
+      isModelDrawnRef.current = null;
       modelsLayer?.destroy();
-      markersLayerRef.current?.hideFromZoom(null);
+      markersLayerRef.current?.hideWhere(null);
       if (isMapRemoved(map)) return;
       if (addLayer) map.off("style.load", addLayer);
       if (map.getLayer(TRAIN_MODELS_LAYER_ID)) map.removeLayer(TRAIN_MODELS_LAYER_ID);

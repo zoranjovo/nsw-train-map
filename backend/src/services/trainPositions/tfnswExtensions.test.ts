@@ -69,6 +69,19 @@ describe("readTfnswVehicleExtensions", () => {
     expect(extensions.get("2")).toEqual({ vehicleModel: null, carriageCount: 0 });
   });
 
+  it("keeps what it read when the feed has a field it can't follow", () => {
+    const unknownGroup = [...varint(99 * 8 + 3), ...varintField(1, 1), ...varint(99 * 8 + 4)];
+    const binary = new Uint8Array([
+      ...feedBinary(vehicleEntity("1", "130U.947.166.12.A.8.91441911", "B", 8)),
+      ...unknownGroup,
+    ]);
+
+    const extensions = readTfnswVehicleExtensions(binary);
+
+    expect(extensions.get("1")).toEqual({ vehicleModel: "B", carriageCount: 8 });
+    expect(decodeGtfsRealtimeFeed(binary).entity).toHaveLength(1);
+  });
+
   it("leaves the standard decoder able to read the same feed", () => {
     const binary = feedBinary(vehicleEntity("1", "130U.947.166.12.A.8.91441911", "B", 8));
 
