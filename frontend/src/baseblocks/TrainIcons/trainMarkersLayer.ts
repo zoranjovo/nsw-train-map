@@ -90,7 +90,7 @@ type GlResources = {
 
 export type TrainMarkersLayer = {
   layer: CustomLayerInterface;
-  hideFromZoom: (minZoom: number | null) => void;
+  hideWhere: (isHidden: ((marker: TrainMarker) => boolean) | null) => void;
 };
 
 const compile = (gl: WebGL2RenderingContext, type: number, source: string): WebGLShader => {
@@ -197,7 +197,7 @@ export const createTrainMarkersLayer = (
   let gl: WebGL2RenderingContext | null = null;
   let resources: GlResources | null = null;
   let instanceData = new Float32Array(FLOATS_PER_INSTANCE * 256);
-  let hiddenFromZoom: number | null = null;
+  let isHidden: ((marker: TrainMarker) => boolean) | null = null;
   const matrix = new Float32Array(16);
 
   const writeInstance = (index: number, marker: TrainMarker, centre: MercatorCoordinate) => {
@@ -229,8 +229,6 @@ export const createTrainMarkersLayer = (
     render: (_gl, options) => {
       if (!gl || !resources) return;
       const zoom = map.getZoom();
-      if (hiddenFromZoom != null && zoom >= hiddenFromZoom) return;
-
       const markers = getMarkers();
       if (markers.length === 0) return;
       if (instanceData.length < markers.length * FLOATS_PER_INSTANCE) {
@@ -238,13 +236,15 @@ export const createTrainMarkersLayer = (
       }
 
       const centre = MercatorCoordinate.fromLngLat(map.getCenter());
+      const isShown = (marker: TrainMarker) => marker.isNearView && !isHidden?.(marker);
       let index = 0;
       for (const marker of markers) {
-        if (marker.isNearView && !marker.isSelected) writeInstance(index++, marker, centre);
+        if (!marker.isSelected && isShown(marker)) writeInstance(index++, marker, centre);
       }
       for (const marker of markers) {
-        if (marker.isNearView && marker.isSelected) writeInstance(index++, marker, centre);
+        if (marker.isSelected && isShown(marker)) writeInstance(index++, marker, centre);
       }
+      if (index === 0) return;
 
       // Positions are relative to the map centre so float32 precision holds at high zoom
       const main = options.defaultProjectionData.mainMatrix;
@@ -300,8 +300,8 @@ export const createTrainMarkersLayer = (
 
   return {
     layer,
-    hideFromZoom: (minZoom) => {
-      hiddenFromZoom = minZoom;
+    hideWhere: (hidden) => {
+      isHidden = hidden;
       map.triggerRepaint();
     },
   };

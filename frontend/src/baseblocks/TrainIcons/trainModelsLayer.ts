@@ -75,6 +75,7 @@ type PlacedTrain = {
 
 export type TrainModelsLayer = {
   layer: CustomLayerInterface;
+  isDrawn: (key: string) => boolean;
   destroy: () => void;
 };
 
@@ -336,5 +337,10 @@ export const createTrainModelsLayer = (
     displayMaterials.clear();
   };
 
-  return { layer, destroy };
+  const isDrawn = (key: string) =>
+    renderer != null &&
+    map.getZoom() >= TRAIN_MODELS_ON_MAP_SETTINGS.minZoom &&
+    (trains.get(key)?.cars.length ?? 0) > 0;
+
+  return { layer, isDrawn, destroy };
 };
