@@ -124,14 +124,15 @@ const consistModelsByFleet = new Map<string, Promise<ConsistModels>>();
 
 const loadConsistModels = (fleetCode: string | null): Promise<ConsistModels> => {
   const key = fleetCode ?? "";
-  let models = consistModelsByFleet.get(key);
-  if (!models) {
-    models = Promise.all([
-      loadCarModel(fleetCode, "driving-lod"),
-      loadCarModel(fleetCode, "intermediate-lod"),
-    ]).then(([driving, intermediate]) => ({ driving, intermediate }));
-    consistModelsByFleet.set(key, models);
-  }
+  const cached = consistModelsByFleet.get(key);
+  if (cached) return cached;
+
+  const models = Promise.all([
+    loadCarModel(fleetCode, "driving-lod"),
+    loadCarModel(fleetCode, "intermediate-lod"),
+  ]).then(([driving, intermediate]) => ({ driving, intermediate }));
+  consistModelsByFleet.set(key, models);
+  models.catch(() => consistModelsByFleet.delete(key));
   return models;
 };
 

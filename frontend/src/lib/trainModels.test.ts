@@ -73,6 +73,18 @@ describe("loadTrainModel", () => {
     );
   });
 
+  it("tries the download again after it fails", async () => {
+    loadAsync.mockRejectedValueOnce(new Error("offline"));
+    loadAsync.mockImplementation(async (url: string) => sceneFor(url));
+    const { loadTrainModel } = await import("./trainModels");
+
+    await expect(loadTrainModel("H")).rejects.toThrow("offline");
+    const model = await loadTrainModel("H");
+
+    expect(model.scene.name).toBe("https://cdn.example.com/train-models/h-set-driving.glb");
+    expect(loadAsync).toHaveBeenCalledTimes(2);
+  });
+
   it("only downloads each model once", async () => {
     loadAsync.mockImplementation(async (url: string) => sceneFor(url));
     const { loadTrainModel } = await import("./trainModels");
