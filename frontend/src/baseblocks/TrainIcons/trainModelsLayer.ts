@@ -34,7 +34,7 @@ import {
   consistLayout,
   placeAlongTrain,
 } from "./trainConsist";
-import type { GetTrainMarkers, TrainMarker } from "./trainMarkers";
+import { type GetTrainMarkers, showsModel, type TrainMarker } from "./trainMarkers";
 
 export const TRAIN_MODELS_ON_MAP_SETTINGS = {
   minZoom: 16,
@@ -237,7 +237,7 @@ export const createTrainModelsLayer = (
     const bounds = paddedVisibleBounds(map, TRAIN_MODELS_ON_MAP_SETTINGS.viewportPadding);
     seen.clear();
     for (const instance of getMarkers()) {
-      if (!instance.isNearView) continue;
+      if (!instance.isNearView || !showsModel(instance)) continue;
       if (!isWithinBounds(bounds, instance.longitude, instance.latitude)) continue;
       seen.add(instance.key);
 

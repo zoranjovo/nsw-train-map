@@ -21,7 +21,7 @@ import {
 } from "../trainMapLayers";
 import { consistLayout, placeAlongTrain } from "./trainConsist";
 import { FOLLOW_MIN_ZOOM, followStep, isKeyboardPan, isPinch } from "./trainFollow";
-import { pickTrainMarker, type TrainMarker, trainIconSizePx } from "./trainMarkers";
+import { pickTrainMarker, showsModel, type TrainMarker, trainIconSizePx } from "./trainMarkers";
 import { createTrainMarkersLayer, type TrainMarkersLayer } from "./trainMarkersLayer";
 import type { TrainModelsLayer } from "./trainModelsLayer";
 import { trainUpdateIntervalMs } from "./trainUpdateRate";
@@ -250,6 +250,7 @@ export const TrainIcons = () => {
 
       const carRadius = Math.max(radius, MODEL_PICK_HALF_LENGTH_M / metersPerPixel(map));
       return pickTrainMarker(getMarkers(), point, carRadius, (marker) => {
+        if (!showsModel(marker)) return [map.project([marker.longitude, marker.latitude])];
         const carCount = consistLayout(marker.fleetCode, marker.carCount).length;
         return Array.from({ length: carCount }, (_, index) => {
           const offset = ((carCount - 1) / 2 - index) * NOMINAL_CAR_LENGTH_M;

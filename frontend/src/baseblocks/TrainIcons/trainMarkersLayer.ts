@@ -11,7 +11,12 @@ import {
   TRAIN_ICON_ROW_COUNT,
   TRAIN_ICON_ROWS,
 } from "./trainIconImages";
-import { type GetTrainMarkers, type TrainMarker, trainIconSizePx } from "./trainMarkers";
+import {
+  type GetTrainMarkers,
+  showsModel,
+  type TrainMarker,
+  trainIconSizePx,
+} from "./trainMarkers";
 
 const ATLAS_CELL_PX = 128;
 const ATLAS_GUTTER_PX = 16;
@@ -229,7 +234,7 @@ export const createTrainMarkersLayer = (
     render: (_gl, options) => {
       if (!gl || !resources) return;
       const zoom = map.getZoom();
-      if (hiddenFromZoom != null && zoom >= hiddenFromZoom) return;
+      const modelsShowing = hiddenFromZoom != null && zoom >= hiddenFromZoom;
 
       const markers = getMarkers();
       if (markers.length === 0) return;
@@ -238,13 +243,16 @@ export const createTrainMarkersLayer = (
       }
 
       const centre = MercatorCoordinate.fromLngLat(map.getCenter());
+      const drawsIcon = (marker: TrainMarker) =>
+        marker.isNearView && !(modelsShowing && showsModel(marker));
       let index = 0;
       for (const marker of markers) {
-        if (marker.isNearView && !marker.isSelected) writeInstance(index++, marker, centre);
+        if (drawsIcon(marker) && !marker.isSelected) writeInstance(index++, marker, centre);
       }
       for (const marker of markers) {
-        if (marker.isNearView && marker.isSelected) writeInstance(index++, marker, centre);
+        if (drawsIcon(marker) && marker.isSelected) writeInstance(index++, marker, centre);
       }
+      if (index === 0) return;
 
       // Positions are relative to the map centre so float32 precision holds at high zoom
       const main = options.defaultProjectionData.mainMatrix;
