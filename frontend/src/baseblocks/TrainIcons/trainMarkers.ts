@@ -22,6 +22,9 @@ export type TrainMarker = {
 
 export type GetTrainMarkers = () => readonly TrainMarker[];
 
+// Only trains placed on the track have a reliable heading, so only they are drawn as models
+export const showsModel = (marker: TrainMarker): boolean => marker.track != null;
+
 // [zoom, icon scale] stops, interpolated linearly like a MapLibre zoom expression
 const ICON_SCALE_STOPS: [number, number][] = [
   [8, 0.3],

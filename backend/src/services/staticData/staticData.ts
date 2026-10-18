@@ -21,6 +21,7 @@ import type {
 } from "../../types/train/tracks";
 import { debugLog } from "../../utils/debug";
 import { describeError } from "../../utils/errors";
+import { snapTracksToOsm } from "../osmRails/osmRails";
 import { getStaticTimetable, setStaticTimetable } from "../timetable/store";
 
 const TFNSW_STATIC_TIMETABLE_URL = "https://api.transport.nsw.gov.au/v1/gtfs/schedule/sydneytrains";
@@ -450,7 +451,10 @@ export const buildStaticSnapshot = async (
       shapePointsById.set(shapeId, [point]);
     }
   });
-  const tracks = toTracksFeatureCollection(shapePointsById, routeMetaById, routeCountsByShapeId);
+  const tracks = await snapTracksToOsm(
+    toTracksFeatureCollection(shapePointsById, routeMetaById, routeCountsByShapeId),
+    ASSETS_DIR
+  );
 
   if (
     stopsById.size === 0 ||
