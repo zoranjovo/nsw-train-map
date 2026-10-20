@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { LocateFixed, X } from "lucide-react";
 import { DateTime } from "luxon";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { resolveTrainLineColor } from "@/lib/trainRouteColors";
-import { getRouteShortNameFromRouteId } from "@/lib/trainRouteId";
-import { useAppContext } from "@/providers/AppProvider";
+import { describeTrainDestination } from "@/lib/trainDestination";
+import { describeTrainFleet } from "@/lib/trainFleet";
+import { isSameTrain } from "@/lib/trainIdentity";
+import { createRouteColorLookup } from "@/lib/trainRouteColors";
+import { createRouteShortNameLookup } from "@/lib/trainRouteId";
+import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TrainPosition } from "@/types/train/train";
 import styles from "./SelectionInfoPanel.module.css";
+import { TrainModelPreview } from "./TrainModelPreview/TrainModelPreview";
 import { TripTimeline } from "./TripTimeline/TripTimeline";
 
 const TRANSITION_DURATION_MS = 280;
@@ -36,7 +40,7 @@ const formatUpdatedAt = (timestamp: number | null, nowEpochSeconds: number): str
 };
 
 const formatSpeed = (speed: number | null): string =>
-  speed == null ? "—" : `${Math.round(speed)} km/h`;
+  speed == null ? "—" : `${Math.round(speed * 3.6)} km/h`;
 
 const formatBearing = (bearing: number | null): string =>
   bearing == null ? "—" : `${Math.round(bearing)}°`;
@@ -50,7 +54,7 @@ const RawDetails = ({
 }) => {
   const timestampStr =
     train.timestamp != null
-      ? DateTime.fromSeconds(train.timestamp).toLocaleString({
+      ? DateTime.fromSeconds(train.timestamp, { zone: "Australia/Sydney" }).toLocaleString({
           hour: "numeric",
           minute: "2-digit",
           second: "2-digit",
@@ -64,6 +68,10 @@ const RawDetails = ({
       <dd>{train.vehicleId || "—"}</dd>
       <dt>Trip ID</dt>
       <dd>{train.tripId || "—"}</dd>
+      <dt>Fleet code</dt>
+      <dd>{train.fleetCode || "—"}</dd>
+      <dt>Cars</dt>
+      <dd>{train.carCount ?? "—"}</dd>
       <dt>Speed</dt>
       <dd>{formatSpeed(train.speed ?? null)}</dd>
       <dt>Bearing</dt>
@@ -76,11 +84,22 @@ const RawDetails = ({
   );
 };
 
+const FleetBadge = ({ train }: { train: TrainPosition }) => {
+  const fleet = describeTrainFleet(train);
+  return (
+    <p className={styles.fleetBadge} data-kind={fleet.kind}>
+      <span className={styles.fleetName}>{fleet.name}</span>
+      {fleet.detail && <span className={styles.fleetDetail}>{fleet.detail}</span>}
+    </p>
+  );
+};
+
 const PanelContent = ({
   train,
   nowEpochSeconds,
   onClose,
   isDesktop,
+  isOpen,
   showRaw,
   onToggleShowRaw,
   routeColor,
@@ -90,11 +109,21 @@ const PanelContent = ({
   nowEpochSeconds: number;
   onClose: () => void;
   isDesktop?: boolean;
+  isOpen: boolean;
   showRaw: boolean;
   onToggleShowRaw: () => void;
   routeColor: string;
   routeShortName: string | null;
 }) => {
+  const { timetables } = useLiveTrainData();
+  const { followSelectedTrain, setFollowSelectedTrain } = useAppContext();
+  const timetable = timetables.get(train.tripId);
+  const destination = describeTrainDestination({
+    tripHeadsign: timetable?.tripHeadsign,
+    vehicleLabel: train.vehicleLabel,
+    lastStopName: timetable?.stops[timetable.stops.length - 1]?.stopName,
+  });
+
   return (
     <div
       className={styles.panelInner}
@@ -118,6 +147,19 @@ const PanelContent = ({
             <X />
           </Button>
         </div>
+        <TrainModelPreview fleetCode={train.fleetCode} destination={destination} isOpen={isOpen}>
+          <FleetBadge train={train} />
+        </TrainModelPreview>
+        {!followSelectedTrain && (
+          <button
+            type="button"
+            className={styles.followButton}
+            onClick={() => setFollowSelectedTrain(true)}
+          >
+            <LocateFixed size={12} aria-hidden="true" />
+            Follow train
+          </button>
+        )}
         <div className={styles.statsRow}>
           <div className={styles.stat}>
             <span className={styles.statLabel}>Speed</span>
@@ -172,6 +214,7 @@ const PanelContent = ({
 
 export const SelectionInfoPanel = () => {
   const { selectedItem, setSelectedItem, trainStatic } = useAppContext();
+  const { trainRealtime } = useLiveTrainData();
   const isMobile = useIsMobile();
 
   const [displayedTrain, setDisplayedTrain] = useState<TrainPosition | null>(null);
@@ -185,29 +228,29 @@ export const SelectionInfoPanel = () => {
   const pendingTrainRef = useRef<TrainPosition | null>(null);
   const transitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const liveTrain = useMemo(() => {
+    if (!displayedTrain) return null;
+    return (
+      trainRealtime.positions.items.find((position) => isSameTrain(position, displayedTrain)) ??
+      displayedTrain
+    );
+  }, [displayedTrain, trainRealtime.positions.items]);
+
+  const getRouteShortName = useMemo(
+    () => createRouteShortNameLookup(trainStatic.tracks.features),
+    [trainStatic.tracks.features]
+  );
+
   const routeShortName = useMemo(() => {
     if (!displayedTrain) return null;
-    return getRouteShortNameFromRouteId(displayedTrain.routeId) ?? displayedTrain.routeId ?? null;
-  }, [displayedTrain]);
+    return getRouteShortName(displayedTrain.routeId) ?? displayedTrain.routeId ?? null;
+  }, [displayedTrain, getRouteShortName]);
 
-  const routeColor = useMemo(() => {
-    if (!displayedTrain) return "#6b7280";
-    const routeIdPrefix = getRouteShortNameFromRouteId(displayedTrain.routeId) ?? "";
-    const track =
-      (routeIdPrefix &&
-        trainStatic.tracks.features.find(
-          (f) => getRouteShortNameFromRouteId(f.properties.route_id) === routeIdPrefix
-        )) ||
-      (routeShortName &&
-        trainStatic.tracks.features.find(
-          (f) => f.properties.route_short_name === routeShortName
-        )) ||
-      undefined;
-    return resolveTrainLineColor(
-      track?.properties.route_short_name ?? routeShortName ?? "",
-      track?.properties.route_color ?? ""
-    );
-  }, [displayedTrain, routeShortName, trainStatic.tracks.features]);
+  const getRouteColor = useMemo(
+    () => createRouteColorLookup(trainStatic.tracks.features),
+    [trainStatic.tracks.features]
+  );
+  const routeColor = displayedTrain ? getRouteColor(displayedTrain.routeId) : "#6b7280";
 
   useEffect(() => {
     const id = setInterval(() => setNowEpochSeconds(Math.floor(Date.now() / 1000)), 1000);
@@ -283,7 +326,7 @@ export const SelectionInfoPanel = () => {
   const handleClose = () => setSelectedItem(null);
 
   if (isMobile) {
-    if (!displayedTrain) return null;
+    if (!liveTrain) return null;
     return (
       <Sheet open={isOpen} onOpenChange={(open) => !open && handleClose()}>
         <SheetContent side="right" showCloseButton={false} className={styles.mobileSheetContent}>
@@ -292,9 +335,10 @@ export const SelectionInfoPanel = () => {
             <SheetDescription>Train details panel</SheetDescription>
           </SheetHeader>
           <PanelContent
-            train={displayedTrain}
+            train={liveTrain}
             nowEpochSeconds={nowEpochSeconds}
             onClose={handleClose}
+            isOpen={isOpen}
             showRaw={showRaw}
             onToggleShowRaw={() => setShowRaw((v) => !v)}
             routeColor={routeColor}
@@ -308,12 +352,13 @@ export const SelectionInfoPanel = () => {
   return (
     <aside className={styles.desktopPanelWrap} data-open={isOpen}>
       <div className={styles.desktopSidebar}>
-        {displayedTrain && (
+        {liveTrain && (
           <PanelContent
-            train={displayedTrain}
+            train={liveTrain}
             nowEpochSeconds={nowEpochSeconds}
             onClose={handleClose}
             isDesktop
+            isOpen={isOpen}
             showRaw={showRaw}
             onToggleShowRaw={() => setShowRaw((v) => !v)}
             routeColor={routeColor}
