@@ -348,6 +348,49 @@ export const trainMotionDistance = (motion: TrainMotion, nowEpochSeconds: number
   return distances[next - 1] + (distances[next] - distances[next - 1]) * progress;
 };
 
+export const trainMotionSpeed = (motion: TrainMotion, nowEpochSeconds: number): number =>
+  Math.abs(
+    trainMotionDistance(motion, nowEpochSeconds + 0.5) -
+      trainMotionDistance(motion, nowEpochSeconds - 0.5)
+  );
+
+const MAX_REPORTED_OFFSET_METERS = 150;
+
+// Distance along the track of a reported position, looking only near where the train should be
+export const trackDistanceNear = (
+  motion: TrainMotion,
+  latitude: number,
+  longitude: number,
+  aroundDistance: number,
+  windowMeters: number
+): number | null => {
+  const { path } = motion;
+  const cosLat = Math.cos((latitude * Math.PI) / 180);
+  const px = longitude * METERS_PER_DEGREE * cosLat;
+  const py = latitude * METERS_PER_DEGREE;
+  const first = Math.max(0, firstIndexAtOrAfter(path.dists, aroundDistance - windowMeters) - 1);
+  const last = Math.min(
+    path.dists.length - 1,
+    firstIndexAtOrAfter(path.dists, aroundDistance + windowMeters)
+  );
+  let best: number | null = null;
+  let bestOffset = MAX_REPORTED_OFFSET_METERS;
+  for (let index = first; index < last; index++) {
+    const ax = path.lons[index] * METERS_PER_DEGREE * cosLat;
+    const ay = path.lats[index] * METERS_PER_DEGREE;
+    const dx = path.lons[index + 1] * METERS_PER_DEGREE * cosLat - ax;
+    const dy = path.lats[index + 1] * METERS_PER_DEGREE - ay;
+    const lengthSq = dx * dx + dy * dy;
+    const t = lengthSq === 0 ? 0 : clamp01(((px - ax) * dx + (py - ay) * dy) / lengthSq);
+    const offset = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+    if (offset <= bestOffset) {
+      bestOffset = offset;
+      best = path.dists[index] + (path.dists[index + 1] - path.dists[index]) * t;
+    }
+  }
+  return best;
+};
+
 // Past either end of the track the position carries on in a straight line, so trailing cars
 // of a train sitting at a terminus still line up behind it
 export const sampleTrainMotionAt = (
