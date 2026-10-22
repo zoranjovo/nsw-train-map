@@ -15,6 +15,7 @@ import { describeTrainFleet } from "@/lib/trainFleet";
 import { isSameTrain } from "@/lib/trainIdentity";
 import { createRouteColorLookup } from "@/lib/trainRouteColors";
 import { createRouteShortNameLookup } from "@/lib/trainRouteId";
+import { describeTrainRun } from "@/lib/trainRun";
 import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import type { TrainPosition } from "@/types/train/train";
 import styles from "./SelectionInfoPanel.module.css";
@@ -94,6 +95,28 @@ const FleetBadge = ({ train }: { train: TrainPosition }) => {
   );
 };
 
+const RunInfo = ({ tripId }: { tripId: string }) => {
+  const run = describeTrainRun(tripId);
+  if (!run) return null;
+  const items =
+    run.kind === "run"
+      ? [
+          ["Run", run.run],
+          ["Trip", run.trip],
+        ]
+      : [["Train", run.name]];
+  return (
+    <dl className={styles.runInfo}>
+      {items.map(([label, value]) => (
+        <div key={label} className={styles.runItem}>
+          <dt className={styles.runLabel}>{label}</dt>
+          <dd className={styles.runValue}>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+};
+
 const PanelContent = ({
   train,
   nowEpochSeconds,
@@ -147,6 +170,7 @@ const PanelContent = ({
             <X />
           </Button>
         </div>
+        <RunInfo tripId={train.tripId} />
         <TrainModelPreview fleetCode={train.fleetCode} destination={destination} isOpen={isOpen}>
           <FleetBadge train={train} />
         </TrainModelPreview>
