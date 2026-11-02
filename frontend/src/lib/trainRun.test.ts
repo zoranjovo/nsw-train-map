@@ -10,11 +10,16 @@ describe("describeTrainRun", () => {
     });
   });
 
-  it("handles trip names with a dash before the trip letter", () => {
+  it("handles trip names padded with dashes before the trip letter", () => {
     expect(describeTrainRun("93-F.2013.105.128.A.8.92230676")).toEqual({
       kind: "run",
       run: "93",
       trip: "F",
+    });
+    expect(describeTrainRun("2--P.1419.157.108.B.8.92067208")).toEqual({
+      kind: "run",
+      run: "2",
+      trip: "P",
     });
   });
 
