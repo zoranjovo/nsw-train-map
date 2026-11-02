@@ -92,6 +92,8 @@ export type TrainModelsLayer = {
 };
 
 const MODEL_UP_TO_MAP_UP = new Matrix4().makeRotationX(Math.PI / 2);
+// three.js only flips face winding for mirrored object matrices, not mirrored instance matrices
+const MIRROR_Y = new Matrix4().makeScale(1, -1, 1);
 
 const matteMaterials = new Map<Material, MeshLambertMaterial>();
 
@@ -124,13 +126,25 @@ const withMatteMaterials = (model: Group): Group => {
   return matte;
 };
 
+const carModelsByFile = new Map<string, CarModel>();
+
 const loadCarModel = async (
   fleetCode: string | null,
   variant: TrainModelVariant
 ): Promise<CarModel> => {
   const { id, scene } = await loadTrainModel(fleetCode, variant);
-  const box = new Box3().setFromObject(scene);
-  return { id, scene: withMatteMaterials(scene), extents: { front: box.max.x, rear: -box.min.x } };
+  const key = `${id}|${variant}`;
+  let model = carModelsByFile.get(key);
+  if (!model) {
+    const box = new Box3().setFromObject(scene);
+    model = {
+      id,
+      scene: withMatteMaterials(scene),
+      extents: { front: box.max.x, rear: -box.min.x },
+    };
+    carModelsByFile.set(key, model);
+  }
+  return model;
 };
 
 const consistModelsByFleet = new Map<string, Promise<ConsistModels>>();
@@ -168,6 +182,9 @@ const createBatch = (model: CarModel, capacity: number): ModelBatch => {
     const instanced = new InstancedMesh(mesh.geometry, mesh.material, capacity);
     instanced.instanceMatrix.setUsage(DynamicDrawUsage);
     instanced.frustumCulled = false;
+    instanced.matrixAutoUpdate = false;
+    instanced.matrix.copy(MIRROR_Y);
+    instanced.matrixWorldNeedsUpdate = true;
     instanced.count = 0;
     parts.push({ mesh: instanced, local });
   });
@@ -361,7 +378,8 @@ export const createTrainModelsLayer = (
         const batch = batchFor(car.model);
         const slot = batch.count++;
         for (const part of batch.parts) {
-          part.mesh.setMatrixAt(slot, partMatrix.multiplyMatrices(carMatrix, part.local));
+          partMatrix.multiplyMatrices(carMatrix, part.local).premultiply(MIRROR_Y);
+          part.mesh.setMatrixAt(slot, partMatrix);
         }
         if (car.display && batch.display) {
           car.display.matrix.multiplyMatrices(carMatrix, batch.display.local);
