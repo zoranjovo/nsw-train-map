@@ -13,13 +13,16 @@ const simulate = (scenario: Scenario, seconds: number, startSeconds = 0) => {
   const shown: { seconds: number; distance: number; target: number }[] = [];
   for (let ms = startSeconds * 1000; ms <= seconds * 1000; ms += FRAME_MS) {
     const at = ms / 1000;
+    const frame = scenario(at);
+    const direction = frame.direction ?? 1;
     const input: ProgressInput = {
       path,
-      direction: 1,
+      direction,
       trackLength: 100_000,
       speed: SPEED,
+      nextStop: direction > 0 ? 100_000 : 0,
       reported: null,
-      ...scenario(at),
+      ...frame,
     };
     shown.push({
       seconds: at,
@@ -84,7 +87,7 @@ describe("createProgressSmoother", () => {
     const shown = simulate(
       (t) => ({
         target: 3000 + SPEED * t,
-        reported: { distance: 1000 + SPEED * t, ageSeconds: 0 },
+        reported: { distance: 1000 + SPEED * t, targetThen: 3000 + SPEED * t, ageSeconds: 0 },
       }),
       30
     );
@@ -94,18 +97,38 @@ describe("createProgressSmoother", () => {
     }
   });
 
-  it("allows for how old the GPS report is", () => {
+  it("moves the GPS report on by as far as the timetable has moved since", () => {
     const [first] = simulate(
-      () => ({ target: 5000, reported: { distance: 1000, ageSeconds: 20 } }),
+      () => ({ target: 5000, reported: { distance: 1000, targetThen: 4600, ageSeconds: 20 } }),
       0
     );
 
-    expect(first.distance).toBe(1000 + SPEED * 20 + 400);
+    expect(first.distance).toBe(1400 + 400);
+  });
+
+  it("keeps up with the timetable while the GPS report is a minute or so old", () => {
+    const shown = simulate(
+      (t) => ({ target: SPEED * t, reported: { distance: 0, targetThen: 0, ageSeconds: t } }),
+      90
+    );
+
+    for (const frame of shown) expect(frame.distance).toBeCloseTo(frame.target, 6);
+  });
+
+  it("stops at the next station instead of running past it", () => {
+    const shown = simulate((t) => {
+      const target = Math.min(5000, 1000 + SPEED * (t < 180 ? t : t - 60));
+      return { target, speed: target < 5000 ? SPEED : 0, nextStop: 5000 };
+    }, 600);
+
+    expect(Math.max(...shown.map((frame) => frame.distance))).toBeLessThanOrEqual(5000);
+    expect(Math.min(...stepsOf(shown))).toBeGreaterThanOrEqual(0);
+    expect(shown[shown.length - 1].distance).toBe(5000);
   });
 
   it("ignores GPS reports that are too old to trust", () => {
     const [first] = simulate(
-      () => ({ target: 5000, reported: { distance: 1000, ageSeconds: 600 } }),
+      () => ({ target: 5000, reported: { distance: 1000, targetThen: 5000, ageSeconds: 600 } }),
       0
     );
 

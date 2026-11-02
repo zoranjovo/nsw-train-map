@@ -1,6 +1,7 @@
 import maplibregl from "maplibre-gl";
 import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
+import { serverNowMs } from "@/lib/serverClock";
 import { isTimetableStale } from "@/lib/timetableRefresh";
 import { currentTrainDelaySeconds, trainDelayLevel } from "@/lib/trainDelay";
 import { describeTrainDestination } from "@/lib/trainDestination";
@@ -11,6 +12,7 @@ import {
   type TrainMotion,
   trackDistanceNear,
   trainMotionDistance,
+  trainMotionNextStop,
   trainMotionSpeed,
 } from "@/lib/trainPositionInterpolator";
 import { createProgressSmoother } from "@/lib/trainProgressSmoother";
@@ -72,7 +74,10 @@ export const TrainIcons = () => {
   const motionCacheRef = useRef(createTrainMotionCache());
   const progressSmootherRef = useRef(createProgressSmoother());
   const reportedDistancesRef = useRef(
-    new WeakMap<TrainPosition, { motion: TrainMotion; distance: number | null }>()
+    new WeakMap<
+      TrainPosition,
+      { motion: TrainMotion; report: { distance: number; targetThen: number } | null }
+    >()
   );
   const selectedItemRef = useRef(selectedItem);
   const interpolatedRef = useRef(interpolatedTrainMovement);
@@ -202,21 +207,24 @@ export const TrainIcons = () => {
         continue;
       }
       const trackLength = motion.path.dists[motion.path.dists.length - 1];
-      const target = Math.min(
-        trackLength,
-        Math.max(0, trainMotionDistance(motion, nowEpochSeconds))
-      );
+      const timetableDistanceAt = (epochSeconds: number) =>
+        Math.min(trackLength, Math.max(0, trainMotionDistance(motion, epochSeconds)));
+      const target = timetableDistanceAt(nowEpochSeconds);
       let reported = reportedDistancesRef.current.get(position);
       if (reported?.motion !== motion) {
+        const distance = trackDistanceNear(
+          motion,
+          position.latitude,
+          position.longitude,
+          target,
+          REPORTED_SEARCH_WINDOW_M
+        );
         reported = {
           motion,
-          distance: trackDistanceNear(
-            motion,
-            position.latitude,
-            position.longitude,
-            target,
-            REPORTED_SEARCH_WINDOW_M
-          ),
+          report:
+            distance != null && position.timestamp != null
+              ? { distance, targetThen: timetableDistanceAt(position.timestamp) }
+              : null,
         };
         reportedDistancesRef.current.set(position, reported);
       }
@@ -228,9 +236,13 @@ export const TrainIcons = () => {
           trackLength,
           target,
           speed: trainMotionSpeed(motion, nowEpochSeconds),
+          nextStop: trainMotionNextStop(motion, nowEpochSeconds),
           reported:
-            reported.distance != null && position.timestamp != null
-              ? { distance: reported.distance, ageSeconds: nowEpochSeconds - position.timestamp }
+            reported.report && position.timestamp != null
+              ? {
+                  ...reported.report,
+                  ageSeconds: serverNowMs() / 1000 - position.timestamp,
+                }
               : null,
         },
         now
