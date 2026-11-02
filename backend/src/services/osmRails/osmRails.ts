@@ -15,6 +15,7 @@ const OVERPASS_ENDPOINTS = [
 const OVERPASS_TIMEOUT_MS = 4 * 60 * 1000;
 const OVERPASS_ATTEMPTS = 3;
 const OVERPASS_RETRY_DELAY_MS = 20_000;
+const OVERPASS_FAILURE_BACKOFF_MS = 6 * 60 * 60 * 1000;
 const CACHE_FILE = "osm-rails.json";
 const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -48,6 +49,7 @@ export const toRails = (elements: OverpassWay[]): Rail[] =>
 const fetchRails = async (): Promise<Rail[]> => {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < OVERPASS_ATTEMPTS; attempt++) {
+    if (attempt > 0) await new Promise((done) => setTimeout(done, OVERPASS_RETRY_DELAY_MS));
     for (const endpoint of OVERPASS_ENDPOINTS) {
       try {
         debugLog("OSM", `fetching rails from ${endpoint}`);
@@ -66,16 +68,20 @@ const fetchRails = async (): Promise<Rail[]> => {
         lastError = error;
       }
     }
-    await new Promise((done) => setTimeout(done, OVERPASS_RETRY_DELAY_MS));
   }
   throw lastError ?? new Error("Could not fetch OSM rails");
+};
+
+const isRail = (rail: unknown): rail is Rail => {
+  const coordinates = (rail as Partial<Rail> | null)?.coordinates;
+  return Array.isArray(coordinates) && coordinates.length >= 2 && Array.isArray(coordinates[0]);
 };
 
 const readCache = async (cachePath: string): Promise<{ rails: Rail[]; ageMs: number } | null> => {
   try {
     const [content, info] = await Promise.all([readFile(cachePath, "utf8"), stat(cachePath)]);
-    const rails = JSON.parse(content) as Rail[];
-    return Array.isArray(rails) && rails.length > 0
+    const rails = JSON.parse(content) as unknown;
+    return Array.isArray(rails) && rails.length > 0 && rails.every(isRail)
       ? { rails, ageMs: Date.now() - info.mtimeMs }
       : null;
   } catch {
@@ -83,24 +89,37 @@ const readCache = async (cachePath: string): Promise<{ rails: Rail[]; ageMs: num
   }
 };
 
-export const loadOsmRails = async (assetsDir: string): Promise<Rail[] | null> => {
-  const cachePath = resolve(assetsDir, CACHE_FILE);
-  const cached = await readCache(cachePath);
-  if (cached && cached.ageMs < CACHE_MAX_AGE_MS) return cached.rails;
+export const loadOsmRails = async (assetsDir: string): Promise<Rail[] | null> =>
+  (await readCache(resolve(assetsDir, CACHE_FILE)))?.rails ?? null;
 
-  try {
-    const rails = await fetchRails();
-    await mkdir(assetsDir, { recursive: true });
-    await writeFile(`${cachePath}.tmp`, JSON.stringify(rails), "utf8");
-    await rename(`${cachePath}.tmp`, cachePath);
-    debugLog("OSM", `cached ${rails.length} rails`);
-    return rails;
-  } catch (error) {
-    console.error(
-      `Could not fetch OSM rails, ${cached ? "using the old copy" : "keeping timetable track shapes"}: ${describeError(error)}`
-    );
-    return cached?.rails ?? null;
-  }
+let refreshInFlight: Promise<boolean> | null = null;
+let lastFailedAt = Number.NEGATIVE_INFINITY;
+
+export const refreshOsmRails = (assetsDir: string): Promise<boolean> => {
+  refreshInFlight ??= (async () => {
+    const cachePath = resolve(assetsDir, CACHE_FILE);
+    const cached = await readCache(cachePath);
+    if (cached && cached.ageMs < CACHE_MAX_AGE_MS) return false;
+    if (Date.now() - lastFailedAt < OVERPASS_FAILURE_BACKOFF_MS) return false;
+
+    try {
+      const rails = await fetchRails();
+      await mkdir(assetsDir, { recursive: true });
+      await writeFile(`${cachePath}.tmp`, JSON.stringify(rails), "utf8");
+      await rename(`${cachePath}.tmp`, cachePath);
+      debugLog("OSM", `cached ${rails.length} rails`);
+      return true;
+    } catch (error) {
+      lastFailedAt = Date.now();
+      console.error(
+        `Could not fetch OSM rails, ${cached ? "keeping the old copy" : "keeping timetable track shapes"}: ${describeError(error)}`
+      );
+      return false;
+    }
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
 };
 
 export const snapTracksToOsm = async (
@@ -110,15 +129,22 @@ export const snapTracksToOsm = async (
   const rails = await loadOsmRails(assetsDir);
   if (!rails) return tracks;
 
-  const startedAt = Date.now();
-  const index = createRailIndex(rails);
-  const features = tracks.features.map((feature) => ({
-    ...feature,
-    geometry: {
-      ...feature.geometry,
-      coordinates: snapLineToRails(feature.geometry.coordinates, index).coordinates,
-    },
-  }));
-  debugLog("OSM", `snapped ${features.length} track shapes in ${Date.now() - startedAt} ms`);
-  return { ...tracks, features };
+  try {
+    const startedAt = Date.now();
+    const index = createRailIndex(rails);
+    const features = tracks.features.map((feature) => ({
+      ...feature,
+      geometry: {
+        ...feature.geometry,
+        coordinates: snapLineToRails(feature.geometry.coordinates, index).coordinates,
+      },
+    }));
+    debugLog("OSM", `snapped ${features.length} track shapes in ${Date.now() - startedAt} ms`);
+    return { ...tracks, features };
+  } catch (error) {
+    console.error(
+      `Could not snap tracks onto OSM rails, keeping timetable track shapes: ${describeError(error)}`
+    );
+    return tracks;
+  }
 };
