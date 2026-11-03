@@ -339,13 +339,71 @@ const firstIndexAtOrAfter = (values: Float64Array, target: number): number => {
 
 const clamp01 = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : value);
 
+const segmentEndAt = (times: Float64Array, nowEpochSeconds: number): number =>
+  Math.min(times.length - 1, Math.max(1, firstIndexAtOrAfter(times, nowEpochSeconds)));
+
 export const trainMotionDistance = (motion: TrainMotion, nowEpochSeconds: number): number => {
   const { times, distances } = motion;
   if (times.length <= 1) return distances[0];
-  const next = Math.min(times.length - 1, Math.max(1, firstIndexAtOrAfter(times, nowEpochSeconds)));
+  const next = segmentEndAt(times, nowEpochSeconds);
   const duration = times[next] - times[next - 1];
   const progress = clamp01(duration > 0 ? (nowEpochSeconds - times[next - 1]) / duration : 1);
   return distances[next - 1] + (distances[next] - distances[next - 1]) * progress;
+};
+
+export const trainMotionSpeed = (motion: TrainMotion, nowEpochSeconds: number): number => {
+  const { times, distances } = motion;
+  if (times.length <= 1) return 0;
+  const next = segmentEndAt(times, nowEpochSeconds);
+  const duration = times[next] - times[next - 1];
+  if (duration <= 0 || nowEpochSeconds < times[next - 1] || nowEpochSeconds > times[next]) return 0;
+  return Math.abs(distances[next] - distances[next - 1]) / duration;
+};
+
+export const trainMotionNextStop = (motion: TrainMotion, nowEpochSeconds: number): number => {
+  const { times, distances } = motion;
+  return distances[Math.min(times.length - 1, firstIndexAtOrAfter(times, nowEpochSeconds))];
+};
+
+const MAX_REPORTED_OFFSET_METERS = 150;
+const REPORTED_DISTANCE_WEIGHT = 0.02;
+
+// Distance along the track of a reported position, looking only near where the train should be
+export const trackDistanceNear = (
+  motion: TrainMotion,
+  latitude: number,
+  longitude: number,
+  aroundDistance: number,
+  windowMeters: number
+): number | null => {
+  const { path } = motion;
+  const cosLat = Math.cos((latitude * Math.PI) / 180);
+  const px = longitude * METERS_PER_DEGREE * cosLat;
+  const py = latitude * METERS_PER_DEGREE;
+  const first = Math.max(0, firstIndexAtOrAfter(path.dists, aroundDistance - windowMeters) - 1);
+  const last = Math.min(
+    path.dists.length - 1,
+    firstIndexAtOrAfter(path.dists, aroundDistance + windowMeters)
+  );
+  let best: number | null = null;
+  let bestCost = Number.POSITIVE_INFINITY;
+  for (let index = first; index < last; index++) {
+    const ax = path.lons[index] * METERS_PER_DEGREE * cosLat;
+    const ay = path.lats[index] * METERS_PER_DEGREE;
+    const dx = path.lons[index + 1] * METERS_PER_DEGREE * cosLat - ax;
+    const dy = path.lats[index + 1] * METERS_PER_DEGREE - ay;
+    const lengthSq = dx * dx + dy * dy;
+    const t = lengthSq === 0 ? 0 : clamp01(((px - ax) * dx + (py - ay) * dy) / lengthSq);
+    const offset = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+    if (offset > MAX_REPORTED_OFFSET_METERS) continue;
+    const distance = path.dists[index] + (path.dists[index + 1] - path.dists[index]) * t;
+    const cost = offset + Math.abs(distance - aroundDistance) * REPORTED_DISTANCE_WEIGHT;
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = distance;
+    }
+  }
+  return best;
 };
 
 // Past either end of the track the position carries on in a straight line, so trailing cars
