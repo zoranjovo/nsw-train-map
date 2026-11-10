@@ -13,7 +13,6 @@ export const PROGRESS_SMOOTHING = {
   // The train is never shown further than this from where its last GPS report puts it
   reportedLeewayM: 400,
   maxReportedAgeSeconds: 90,
-  maxReportedExtrapolationSeconds: 30,
   // A train not drawn for this long has nothing on screen to smooth from
   maxFrameGapMs: 5000,
 };
@@ -25,7 +24,8 @@ export type ProgressInput = {
   // Where and how fast the timetable has the train right now
   target: number;
   speed: number;
-  reported: { distance: number; ageSeconds: number } | null;
+  nextStop: number;
+  reported: { distance: number; targetThen: number; ageSeconds: number } | null;
 };
 
 type State = { path: object; direction: number; distance: number; atMs: number };
@@ -33,11 +33,9 @@ type State = { path: object; direction: number; distance: number; atMs: number }
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 // Where the last GPS report says the train should be by now, if it's recent enough to trust
-const expectedFromReported = ({ speed, direction, reported }: ProgressInput): number | null => {
-  const { maxReportedAgeSeconds, maxReportedExtrapolationSeconds } = PROGRESS_SMOOTHING;
-  if (!reported || reported.ageSeconds > maxReportedAgeSeconds) return null;
-  const travelled = speed * clamp(reported.ageSeconds, 0, maxReportedExtrapolationSeconds);
-  return reported.distance + direction * travelled;
+const expectedFromReported = ({ target, reported }: ProgressInput): number | null => {
+  if (!reported || reported.ageSeconds > PROGRESS_SMOOTHING.maxReportedAgeSeconds) return null;
+  return reported.distance + target - reported.targetThen;
 };
 
 export type ProgressSmoother = {
@@ -87,8 +85,8 @@ export const createProgressSmoother = (): ProgressSmoother => {
         Math.min(minClosingSpeed, elapsedSeconds > 0 ? gap / elapsedSeconds : 0)
       );
       const speed = clamp(input.speed + Math.sign(behind) * closing, slowest, fastest);
-      let step = speed * elapsedSeconds;
-      if (behind > 0) step = Math.min(step, behind);
+      const room = behind > 0 ? behind : (input.nextStop - previous.distance) * input.direction;
+      const step = Math.min(speed * elapsedSeconds, Math.max(0, room));
       distance = previous.distance + step * input.direction;
     }
 

@@ -4,4 +4,5 @@ import type { TripUpdatesResponse } from "./tripUpdates";
 export interface TrainRealtimeResponse {
   positions: TrainPositions;
   tripUpdates: TripUpdatesResponse;
+  serverTime?: number;
 }

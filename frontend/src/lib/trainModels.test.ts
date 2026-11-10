@@ -31,6 +31,8 @@ describe("trainModelIdFor", () => {
 
     expect(trainModelIdFor("D")).toBe("d-set");
     expect(trainModelIdFor("t")).toBe("t-set");
+    expect(trainModelIdFor("W")).toBe("cargo");
+    expect(trainModelIdFor("F")).toBe("cargo");
     expect(trainModelIdFor("X")).toBe("h-set");
     expect(trainModelIdFor(null)).toBe("h-set");
   });
@@ -62,14 +64,14 @@ describe("loadTrainModel", () => {
     expect(model.scene.name).toBe("https://cdn.example.com/train-models/h-set-driving.glb");
   });
 
-  it("loads the lighter variant when asked", async () => {
+  it("loads the intermediate car when asked", async () => {
     loadAsync.mockImplementation(async (url: string) => sceneFor(url));
     const { loadTrainModel } = await import("./trainModels");
 
-    await loadTrainModel("D", "driving-lod");
+    await loadTrainModel("D", "intermediate");
 
     expect(loadAsync).toHaveBeenCalledWith(
-      "https://cdn.example.com/train-models/d-set-driving-lod.glb"
+      "https://cdn.example.com/train-models/d-set-intermediate.glb"
     );
   });
 

@@ -339,22 +339,34 @@ const firstIndexAtOrAfter = (values: Float64Array, target: number): number => {
 
 const clamp01 = (value: number): number => (value < 0 ? 0 : value > 1 ? 1 : value);
 
+const segmentEndAt = (times: Float64Array, nowEpochSeconds: number): number =>
+  Math.min(times.length - 1, Math.max(1, firstIndexAtOrAfter(times, nowEpochSeconds)));
+
 export const trainMotionDistance = (motion: TrainMotion, nowEpochSeconds: number): number => {
   const { times, distances } = motion;
   if (times.length <= 1) return distances[0];
-  const next = Math.min(times.length - 1, Math.max(1, firstIndexAtOrAfter(times, nowEpochSeconds)));
+  const next = segmentEndAt(times, nowEpochSeconds);
   const duration = times[next] - times[next - 1];
   const progress = clamp01(duration > 0 ? (nowEpochSeconds - times[next - 1]) / duration : 1);
   return distances[next - 1] + (distances[next] - distances[next - 1]) * progress;
 };
 
-export const trainMotionSpeed = (motion: TrainMotion, nowEpochSeconds: number): number =>
-  Math.abs(
-    trainMotionDistance(motion, nowEpochSeconds + 0.5) -
-      trainMotionDistance(motion, nowEpochSeconds - 0.5)
-  );
+export const trainMotionSpeed = (motion: TrainMotion, nowEpochSeconds: number): number => {
+  const { times, distances } = motion;
+  if (times.length <= 1) return 0;
+  const next = segmentEndAt(times, nowEpochSeconds);
+  const duration = times[next] - times[next - 1];
+  if (duration <= 0 || nowEpochSeconds < times[next - 1] || nowEpochSeconds > times[next]) return 0;
+  return Math.abs(distances[next] - distances[next - 1]) / duration;
+};
+
+export const trainMotionNextStop = (motion: TrainMotion, nowEpochSeconds: number): number => {
+  const { times, distances } = motion;
+  return distances[Math.min(times.length - 1, firstIndexAtOrAfter(times, nowEpochSeconds))];
+};
 
 const MAX_REPORTED_OFFSET_METERS = 150;
+const REPORTED_DISTANCE_WEIGHT = 0.02;
 
 // Distance along the track of a reported position, looking only near where the train should be
 export const trackDistanceNear = (
@@ -374,7 +386,7 @@ export const trackDistanceNear = (
     firstIndexAtOrAfter(path.dists, aroundDistance + windowMeters)
   );
   let best: number | null = null;
-  let bestOffset = MAX_REPORTED_OFFSET_METERS;
+  let bestCost = Number.POSITIVE_INFINITY;
   for (let index = first; index < last; index++) {
     const ax = path.lons[index] * METERS_PER_DEGREE * cosLat;
     const ay = path.lats[index] * METERS_PER_DEGREE;
@@ -383,9 +395,12 @@ export const trackDistanceNear = (
     const lengthSq = dx * dx + dy * dy;
     const t = lengthSq === 0 ? 0 : clamp01(((px - ax) * dx + (py - ay) * dy) / lengthSq);
     const offset = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
-    if (offset <= bestOffset) {
-      bestOffset = offset;
-      best = path.dists[index] + (path.dists[index + 1] - path.dists[index]) * t;
+    if (offset > MAX_REPORTED_OFFSET_METERS) continue;
+    const distance = path.dists[index] + (path.dists[index + 1] - path.dists[index]) * t;
+    const cost = offset + Math.abs(distance - aroundDistance) * REPORTED_DISTANCE_WEIGHT;
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = distance;
     }
   }
   return best;

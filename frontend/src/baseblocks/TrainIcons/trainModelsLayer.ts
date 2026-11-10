@@ -6,20 +6,22 @@ import {
 import {
   Box3,
   DirectionalLight,
+  DynamicDrawUsage,
   type Group,
   HemisphereLight,
+  InstancedMesh,
   type Material,
   MathUtils,
   Matrix4,
   type Mesh,
   MeshLambertMaterial,
   type MeshStandardMaterial,
-  type Object3D,
   PerspectiveCamera,
   Scene,
   WebGLRenderer,
 } from "three";
-import { loadTrainModel } from "@/lib/trainModels";
+import { describeTrainFleet } from "@/lib/trainFleet";
+import { loadTrainModel, type TrainModelVariant } from "@/lib/trainModels";
 import { isWithinBounds, paddedVisibleBounds } from "../MapView/mapViewport";
 import {
   createDestinationMaterial,
@@ -58,12 +60,23 @@ type ConsistModels = {
 
 type PlacedCar = {
   spec: ConsistCar;
-  object: Object3D;
-  modelId: string;
+  model: CarModel;
+  // Each driving car's destination screen is its own mesh, since its text differs per train
   display: Mesh | null;
   displayOriginal: MeshStandardMaterial | null;
   displayKey: string | null;
 };
+
+// Every car of one model is drawn in a single call per part instead of one call per car
+type InstancedPart = { mesh: InstancedMesh; local: Matrix4 };
+type ModelBatch = {
+  parts: InstancedPart[];
+  capacity: number;
+  count: number;
+  display: { mesh: Mesh; local: Matrix4 } | null;
+};
+
+const MIN_BATCH_CAPACITY = 32;
 
 type PlacedTrain = {
   instance: TrainMarker;
@@ -80,6 +93,8 @@ export type TrainModelsLayer = {
 };
 
 const MODEL_UP_TO_MAP_UP = new Matrix4().makeRotationX(Math.PI / 2);
+// three.js only flips face winding for mirrored object matrices, not mirrored instance matrices
+const MIRROR_Y = new Matrix4().makeScale(1, -1, 1);
 
 const matteMaterials = new Map<Material, MeshLambertMaterial>();
 
@@ -112,13 +127,25 @@ const withMatteMaterials = (model: Group): Group => {
   return matte;
 };
 
+const carModelsByFile = new Map<string, CarModel>();
+
 const loadCarModel = async (
   fleetCode: string | null,
-  variant: "driving-lod" | "intermediate-lod"
+  variant: TrainModelVariant
 ): Promise<CarModel> => {
   const { id, scene } = await loadTrainModel(fleetCode, variant);
-  const box = new Box3().setFromObject(scene);
-  return { id, scene: withMatteMaterials(scene), extents: { front: box.max.x, rear: -box.min.x } };
+  const key = `${id}|${variant}`;
+  let model = carModelsByFile.get(key);
+  if (!model) {
+    const box = new Box3().setFromObject(scene);
+    model = {
+      id,
+      scene: withMatteMaterials(scene),
+      extents: { front: box.max.x, rear: -box.min.x },
+    };
+    carModelsByFile.set(key, model);
+  }
+  return model;
 };
 
 const consistModelsByFleet = new Map<string, Promise<ConsistModels>>();
@@ -129,8 +156,8 @@ const loadConsistModels = (fleetCode: string | null): Promise<ConsistModels> => 
   if (cached) return cached;
 
   const models = Promise.all([
-    loadCarModel(fleetCode, "driving-lod"),
-    loadCarModel(fleetCode, "intermediate-lod"),
+    loadCarModel(fleetCode, "driving"),
+    loadCarModel(fleetCode, "intermediate"),
   ]).then(([driving, intermediate]) => ({ driving, intermediate }));
   consistModelsByFleet.set(key, models);
   models.catch(() => consistModelsByFleet.delete(key));
@@ -138,6 +165,32 @@ const loadConsistModels = (fleetCode: string | null): Promise<ConsistModels> => 
 };
 
 const layoutKeyFor = (marker: TrainMarker) => `${marker.fleetCode ?? ""}|${marker.carCount ?? ""}`;
+
+const createBatch = (model: CarModel, capacity: number): ModelBatch => {
+  model.scene.updateMatrixWorld(true);
+  const toModel = new Matrix4().copy(model.scene.matrixWorld).invert();
+  const display = findDisplayMesh(model.scene);
+  const parts: InstancedPart[] = [];
+  let displayPart: ModelBatch["display"] = null;
+  model.scene.traverse((child) => {
+    const mesh = child as Mesh;
+    if (!mesh.isMesh) return;
+    const local = new Matrix4().multiplyMatrices(toModel, mesh.matrixWorld);
+    if (mesh === display) {
+      displayPart = { mesh, local };
+      return;
+    }
+    const instanced = new InstancedMesh(mesh.geometry, mesh.material, capacity);
+    instanced.instanceMatrix.setUsage(DynamicDrawUsage);
+    instanced.frustumCulled = false;
+    instanced.matrixAutoUpdate = false;
+    instanced.matrix.copy(MIRROR_Y);
+    instanced.matrixWorldNeedsUpdate = true;
+    instanced.count = 0;
+    parts.push({ mesh: instanced, local });
+  });
+  return { parts, capacity, count: 0, display: displayPart };
+};
 
 export const createTrainModelsLayer = (
   map: MaplibreMap,
@@ -157,16 +210,39 @@ export const createTrainModelsLayer = (
 
   const trains = new Map<string, PlacedTrain>();
   const displayMaterials = new Map<string, DestinationMaterial>();
+  const batches = new Map<CarModel, ModelBatch>();
   const centreOffset = new Matrix4();
   const scale = new Matrix4();
   const heading = new Matrix4();
+  const carMatrix = new Matrix4();
+  const partMatrix = new Matrix4();
+
+  const removeBatch = (batch: ModelBatch) => {
+    for (const part of batch.parts) {
+      scene.remove(part.mesh);
+      part.mesh.dispose();
+    }
+  };
+
+  const batchFor = (model: CarModel, needed = 0): ModelBatch => {
+    let batch = batches.get(model);
+    if (!batch || batch.capacity < needed) {
+      if (batch) removeBatch(batch);
+      let capacity = batch?.capacity ?? MIN_BATCH_CAPACITY;
+      while (capacity < needed) capacity *= 2;
+      batch = createBatch(model, capacity);
+      for (const part of batch.parts) scene.add(part.mesh);
+      batches.set(model, batch);
+    }
+    return batch;
+  };
   let renderer: WebGLRenderer | null = null;
   let destroyed = false;
 
   const applyDestination = (train: PlacedTrain, car: PlacedCar) => {
     if (!car.display || !car.displayOriginal) return;
     const { primary, secondary } = train.instance.destination;
-    const key = `${car.modelId}|${primary}|${secondary ?? ""}`;
+    const key = `${car.model.id}|${primary}|${secondary ?? ""}`;
     if (car.displayKey === key) return;
 
     let shared = displayMaterials.get(key);
@@ -183,7 +259,7 @@ export const createTrainModelsLayer = (
   };
 
   const removeCars = (train: PlacedTrain) => {
-    for (const car of train.cars) scene.remove(car.object);
+    for (const car of train.cars) if (car.display) scene.remove(car.display);
     train.cars = [];
     train.offsets = [];
   };
@@ -193,22 +269,21 @@ export const createTrainModelsLayer = (
     const extents: CarExtents[] = [];
     train.cars = layout.map((spec): PlacedCar => {
       const model = spec.kind === "driving" ? models.driving : models.intermediate;
-      const object = model.scene.clone(true);
-      object.matrixAutoUpdate = false;
-      object.traverse((child) => {
-        child.frustumCulled = false;
-      });
-      scene.add(object);
       extents.push(
         spec.reversed ? { front: model.extents.rear, rear: model.extents.front } : model.extents
       );
 
-      const display = spec.kind === "driving" ? findDisplayMesh(object) : null;
+      const template = batchFor(model).display?.mesh;
+      const display = template ? template.clone() : null;
+      if (display) {
+        display.matrixAutoUpdate = false;
+        display.frustumCulled = false;
+        scene.add(display);
+      }
       const displayMaterial = display?.material;
       const car: PlacedCar = {
         spec,
-        object,
-        modelId: model.id,
+        model,
         display,
         displayOriginal:
           displayMaterial && !Array.isArray(displayMaterial)
@@ -240,6 +315,7 @@ export const createTrainModelsLayer = (
     seen.clear();
     for (const instance of getMarkers()) {
       if (!instance.isNearView || !showsModel(instance)) continue;
+      if (describeTrainFleet(instance).kind === "cargo") continue;
       if (!isWithinBounds(bounds, instance.longitude, instance.latitude)) continue;
       seen.add(instance.key);
 
@@ -269,6 +345,13 @@ export const createTrainModelsLayer = (
 
   const placeTrains = (centre: MercatorCoordinate) => {
     const hasTerrain = map.getTerrain() != null;
+    const needed = new Map<CarModel, number>();
+    for (const train of trains.values()) {
+      for (const car of train.cars) needed.set(car.model, (needed.get(car.model) ?? 0) + 1);
+    }
+    for (const [model, count] of needed) batchFor(model, count);
+    for (const batch of batches.values()) batch.count = 0;
+
     for (const train of trains.values()) {
       const { instance } = train;
       const trainCentre = {
@@ -288,13 +371,30 @@ export const createTrainModelsLayer = (
         const metres = position.meterInMercatorCoordinateUnits();
         const carHeading = placed.bearing + (car.spec.reversed ? 180 : 0);
 
-        car.object.matrix
+        carMatrix
           .makeTranslation(position.x - centre.x, position.y - centre.y, position.z)
           .multiply(scale.makeScale(metres, -metres, metres))
           .multiply(MODEL_UP_TO_MAP_UP)
           .multiply(heading.makeRotationY(MathUtils.degToRad(90 - carHeading)));
-        car.object.matrixWorldNeedsUpdate = true;
+
+        const batch = batchFor(car.model);
+        const slot = batch.count++;
+        for (const part of batch.parts) {
+          partMatrix.multiplyMatrices(carMatrix, part.local).premultiply(MIRROR_Y);
+          part.mesh.setMatrixAt(slot, partMatrix);
+        }
+        if (car.display && batch.display) {
+          car.display.matrix.multiplyMatrices(carMatrix, batch.display.local);
+          car.display.matrixWorldNeedsUpdate = true;
+        }
       });
+    }
+
+    for (const batch of batches.values()) {
+      for (const part of batch.parts) {
+        part.mesh.count = batch.count;
+        part.mesh.instanceMatrix.needsUpdate = true;
+      }
     }
   };
 
@@ -333,6 +433,8 @@ export const createTrainModelsLayer = (
     destroyed = true;
     for (const train of trains.values()) removeCars(train);
     trains.clear();
+    for (const batch of batches.values()) removeBatch(batch);
+    batches.clear();
     for (const material of displayMaterials.values()) material.dispose();
     displayMaterials.clear();
   };
