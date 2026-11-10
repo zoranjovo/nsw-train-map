@@ -31,6 +31,8 @@ describe("trainModelIdFor", () => {
 
     expect(trainModelIdFor("D")).toBe("d-set");
     expect(trainModelIdFor("t")).toBe("t-set");
+    expect(trainModelIdFor("W")).toBe("cargo");
+    expect(trainModelIdFor("F")).toBe("cargo");
     expect(trainModelIdFor("X")).toBe("h-set");
     expect(trainModelIdFor(null)).toBe("h-set");
   });
