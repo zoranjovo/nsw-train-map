@@ -31,6 +31,7 @@ const FLEET_TYPES: Record<string, FleetType> = {
   V: { kind: "passenger", name: "V Set", isLetteredSet: true },
   X: { kind: "passenger", name: "XPT" },
   Z: { kind: "passenger", name: "Heritage" },
+  F: { kind: "cargo", name: "Cargo" },
   G: { kind: "cargo", name: "Cargo" },
   W: { kind: "cargo", name: "Cargo" },
   I: { kind: "other", name: "Track Inspection" },
