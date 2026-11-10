@@ -21,6 +21,7 @@ import type {
 } from "../../types/train/tracks";
 import { debugLog } from "../../utils/debug";
 import { describeError } from "../../utils/errors";
+import { refreshOsmRails, snapTracksToOsm } from "../osmRails/osmRails";
 import { getStaticTimetable, setStaticTimetable } from "../timetable/store";
 
 const TFNSW_STATIC_TIMETABLE_URL = "https://api.transport.nsw.gov.au/v1/gtfs/schedule/sydneytrains";
@@ -450,7 +451,10 @@ export const buildStaticSnapshot = async (
       shapePointsById.set(shapeId, [point]);
     }
   });
-  const tracks = toTracksFeatureCollection(shapePointsById, routeMetaById, routeCountsByShapeId);
+  const tracks = await snapTracksToOsm(
+    toTracksFeatureCollection(shapePointsById, routeMetaById, routeCountsByShapeId),
+    ASSETS_DIR
+  );
 
   if (
     stopsById.size === 0 ||
@@ -521,6 +525,19 @@ const installDownloadedZip = async (snapshotDate: string): Promise<void> => {
   }
 };
 
+const resnapWithNewOsmRails = async (): Promise<void> => {
+  try {
+    if (!(await refreshOsmRails(ASSETS_DIR))) return;
+    const { snapshotDate } = getStaticTimetable();
+    const snapshot = await buildStaticSnapshot(resolve(ASSETS_DIR, GTFS_ZIP_FILE), snapshotDate);
+    if (!updateInFlight && getStaticTimetable().snapshotDate === snapshotDate) {
+      setStaticTimetable(snapshot);
+    }
+  } catch (error) {
+    console.error(`Could not rebuild tracks with new OSM rails: ${describeError(error)}`);
+  }
+};
+
 export const updateStaticTimetable = async (): Promise<void> => {
   if (updateInFlight) {
     return updateInFlight;
@@ -556,6 +573,7 @@ export const updateStaticTimetable = async (): Promise<void> => {
   } finally {
     updateInFlight = null;
   }
+  void resnapWithNewOsmRails();
 };
 
 export const getRouteStaticAssets = async (): Promise<{
