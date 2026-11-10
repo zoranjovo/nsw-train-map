@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import axios from "axios";
 import type { TrainTracksResponse } from "../../types/train/tracks";
 import { debugLog } from "../../utils/debug";
@@ -132,13 +133,17 @@ export const snapTracksToOsm = async (
   try {
     const startedAt = Date.now();
     const index = createRailIndex(rails);
-    const features = tracks.features.map((feature) => ({
-      ...feature,
-      geometry: {
-        ...feature.geometry,
-        coordinates: snapLineToRails(feature.geometry.coordinates, index).coordinates,
-      },
-    }));
+    const features: TrainTracksResponse["features"] = [];
+    for (const feature of tracks.features) {
+      await yieldToEventLoop();
+      features.push({
+        ...feature,
+        geometry: {
+          ...feature.geometry,
+          coordinates: snapLineToRails(feature.geometry.coordinates, index).coordinates,
+        },
+      });
+    }
     debugLog("OSM", `snapped ${features.length} track shapes in ${Date.now() - startedAt} ms`);
     return { ...tracks, features };
   } catch (error) {
