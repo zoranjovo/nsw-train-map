@@ -20,6 +20,7 @@ import {
   Scene,
   WebGLRenderer,
 } from "three";
+import { describeTrainFleet } from "@/lib/trainFleet";
 import { loadTrainModel, type TrainModelVariant } from "@/lib/trainModels";
 import { isWithinBounds, paddedVisibleBounds } from "../MapView/mapViewport";
 import {
@@ -314,6 +315,7 @@ export const createTrainModelsLayer = (
     seen.clear();
     for (const instance of getMarkers()) {
       if (!instance.isNearView) continue;
+      if (describeTrainFleet(instance).kind === "cargo") continue;
       if (!isWithinBounds(bounds, instance.longitude, instance.latitude)) continue;
       seen.add(instance.key);
 

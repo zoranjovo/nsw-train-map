@@ -26,11 +26,12 @@ describe("describeTrainFleet", () => {
       detail: null,
     });
     expect(describeTrainFleet({ fleetCode: "G", carCount: 40 }).detail).toBeNull();
+    expect(describeTrainFleet({ fleetCode: "F", carCount: 0 }).kind).toBe("cargo");
   });
 
   it("falls back to unknown for missing or unrecognised codes", () => {
     expect(describeTrainFleet({ fleetCode: null, carCount: null }).name).toBe("Unknown");
-    expect(describeTrainFleet({ fleetCode: "F", carCount: 0 }).name).toBe("Unknown");
+    expect(describeTrainFleet({ fleetCode: "E", carCount: 0 }).name).toBe("Unknown");
     expect(describeTrainFleet({}).name).toBe("Unknown");
   });
 });
