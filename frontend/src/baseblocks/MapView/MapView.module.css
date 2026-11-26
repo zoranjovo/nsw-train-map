@@ -35,9 +35,90 @@
   background: #f4f4f4;
 }
 
-.followButton {
+.locateButton {
   position: absolute;
   top: 146px;
+  left: 10px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  color: #333;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
+}
+
+.locateButton:hover {
+  background: #f4f4f4;
+}
+
+.locateButton[data-status="active"] {
+  color: #1a73e8;
+}
+
+.locateButton[data-status="locating"] {
+  color: #1a73e8;
+  animation: locatePulse 1s ease-in-out infinite alternate;
+}
+
+.locateButton[data-status="denied"] {
+  color: #a1a1aa;
+}
+
+@keyframes locatePulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+.userDot {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #1a73e8;
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.userDot::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: rgba(26, 115, 232, 0.35);
+  animation: userDotHalo 2s ease-out infinite;
+  z-index: -1;
+}
+
+@keyframes userDotHalo {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  to {
+    transform: scale(3);
+    opacity: 0;
+  }
+}
+
+.followButton {
+  position: absolute;
+  top: 184px;
   left: 10px;
   z-index: 10;
   display: flex;
@@ -182,5 +263,13 @@
 
   .layerSelector {
     top: 154px;
+  }
+
+  .locateButton {
+    top: 192px;
+  }
+
+  .followButton {
+    top: 230px;
   }
 }
