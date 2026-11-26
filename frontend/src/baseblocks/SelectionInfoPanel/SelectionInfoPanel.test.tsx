@@ -171,6 +171,16 @@ describe("SelectionInfoPanel", () => {
     expect(screen.getByText("Unknown")).toBeTruthy();
   });
 
+  it("shows the run and trip from the trip ID", () => {
+    select(makeTrain("604K.2013.105.2.T.8.91898975"));
+    renderPanel();
+
+    expect(screen.getByText("Run")).toBeTruthy();
+    expect(screen.getByText("604")).toBeTruthy();
+    expect(screen.getByText("Trip")).toBeTruthy();
+    expect(screen.getByText("K")).toBeTruthy();
+  });
+
   it("offers to follow the train when it is not being followed", () => {
     select(makeTrain("a"));
     renderPanel();

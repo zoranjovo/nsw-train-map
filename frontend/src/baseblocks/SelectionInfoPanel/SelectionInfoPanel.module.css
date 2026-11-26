@@ -166,6 +166,36 @@
   text-overflow: ellipsis;
 }
 
+.runInfo {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 14px;
+  margin: 12px 0 0;
+}
+
+.runItem {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.runLabel {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: oklch(0.45 0 0);
+}
+
+.runValue {
+  margin: 0;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: oklch(0.86 0 0);
+}
+
 .followButton {
   position: relative;
   z-index: 1;
