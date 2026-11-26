@@ -6,6 +6,7 @@ import {
 } from "@/lib/trainRouteColors";
 import { useAppContext } from "@/providers/AppProvider";
 import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
+import { TFNSW_ATTRIBUTION } from "../MapView/mapSources";
 import { syncTrainOverlayLayerOrder, TRAIN_TRACKS_LAYER_ID } from "../trainMapLayers";
 
 const SOURCE_ID = "train-tracks";
@@ -41,6 +42,7 @@ export const TrainLines = () => {
       map.addSource(SOURCE_ID, {
         type: "geojson",
         data: trainStatic.tracks as GeoJSON.FeatureCollection,
+        attribution: TFNSW_ATTRIBUTION,
       });
       map.addLayer({
         id: LAYER_ID,
