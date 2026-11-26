@@ -11,11 +11,14 @@ export type InterpolatedTrainPosition = {
 
 const MAX_STOP_OFFSET_METERS = 300;
 const MAX_TRACK_BACKTRACK_METERS = 200;
+const BLOCK_SEGMENTS = 32;
 
 type TrackPath = {
   lons: Float64Array;
   lats: Float64Array;
   dists: Float64Array;
+  // Bounding box of every BLOCK_SEGMENTS segments, as minLon, minLat, maxLon, maxLat
+  blockBounds: Float64Array;
 };
 
 /** Precomputed geometry for one trip, sampled cheaply on every animation frame. */
@@ -75,7 +78,22 @@ const buildTrackPath = (coordinates: TrainTrackCoordinate[]): TrackPath | null =
       dists[index - 1] +
       approxDistanceMeters(lats[index - 1], lons[index - 1], lats[index], lons[index]);
   }
-  return { lons, lats, dists };
+  const segmentCount = points.length - 1;
+  const blockBounds = new Float64Array(Math.ceil(segmentCount / BLOCK_SEGMENTS) * 4);
+  for (let block = 0; block * BLOCK_SEGMENTS < segmentCount; block++) {
+    const first = block * BLOCK_SEGMENTS;
+    const last = Math.min(segmentCount, first + BLOCK_SEGMENTS);
+    blockBounds.set(
+      [
+        Math.min(...lons.subarray(first, last + 1)),
+        Math.min(...lats.subarray(first, last + 1)),
+        Math.max(...lons.subarray(first, last + 1)),
+        Math.max(...lats.subarray(first, last + 1)),
+      ],
+      block * 4
+    );
+  }
+  return { lons, lats, dists, blockBounds };
 };
 
 const trackPathsByResponse = new WeakMap<TrainTracksResponse, Map<string, TrackPath[]>>();
@@ -103,6 +121,28 @@ type Projection = {
   offsetMeters: number;
 };
 
+// First segment the search can reach: going forward, the first one ending at or after fromDistance;
+// going backward, the last one starting at or before it
+const firstSegmentFrom = (dists: Float64Array, fromDistance: number, direction: number): number => {
+  const segmentCount = dists.length - 1;
+  let low = 0;
+  let high = segmentCount;
+  if (direction > 0) {
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (dists[mid + 1] < fromDistance) low = mid + 1;
+      else high = mid;
+    }
+    return low;
+  }
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (dists[mid] > fromDistance) high = mid;
+    else low = mid + 1;
+  }
+  return low - 1;
+};
+
 const nextPassOfTrack = (
   path: TrackPath,
   latitude: number,
@@ -115,9 +155,26 @@ const nextPassOfTrack = (
   const py = latitude * METERS_PER_DEGREE;
   const segmentCount = path.lons.length - 1;
   let best: Projection | null = null;
+  const marginLat = MAX_STOP_OFFSET_METERS / METERS_PER_DEGREE;
+  const marginLon = marginLat / cosLat;
+  const blockIsFar = (block: number) =>
+    longitude < path.blockBounds[block * 4] - marginLon ||
+    latitude < path.blockBounds[block * 4 + 1] - marginLat ||
+    longitude > path.blockBounds[block * 4 + 2] + marginLon ||
+    latitude > path.blockBounds[block * 4 + 3] + marginLat;
 
-  for (let step = 0; step < segmentCount; step++) {
-    const index = direction > 0 ? step : segmentCount - 1 - step;
+  const firstIndex = firstSegmentFrom(path.dists, fromDistance, direction);
+  for (
+    let index = firstIndex;
+    direction > 0 ? index < segmentCount : index >= 0;
+    index += direction > 0 ? 1 : -1
+  ) {
+    const block = Math.floor(index / BLOCK_SEGMENTS);
+    if (blockIsFar(block)) {
+      if (best != null) return best;
+      index = direction > 0 ? (block + 1) * BLOCK_SEGMENTS - 1 : block * BLOCK_SEGMENTS;
+      continue;
+    }
     const startDistance = path.dists[index];
     const endDistance = path.dists[index + 1];
     if (direction > 0 ? endDistance < fromDistance : startDistance > fromDistance) continue;
