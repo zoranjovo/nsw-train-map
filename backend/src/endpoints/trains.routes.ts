@@ -80,7 +80,11 @@ trainsRouter.get("/realtime", realtimeRateLimiter, async (_req, res) => {
       getTrainPositionsData(),
       getTripUpdatesData(),
     ]);
-    return res.json({ positions, tripUpdates: toTripUpdatesResponse(tripUpdates) });
+    return res.json({
+      positions,
+      tripUpdates: toTripUpdatesResponse(tripUpdates),
+      serverTime: Date.now(),
+    });
   } catch (error) {
     console.error(`Error fetching realtime data: ${describeError(error)}`);
     return res.status(500).json({ error: "Internal server error" });

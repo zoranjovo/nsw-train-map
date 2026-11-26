@@ -1,12 +1,21 @@
 import maplibregl from "maplibre-gl";
 import { useCallback, useEffect, useRef } from "react";
 import { getTrainTimetableBulk } from "@/client-api/train";
+import { serverNowMs } from "@/lib/serverClock";
 import { isTimetableStale } from "@/lib/timetableRefresh";
 import { currentTrainDelaySeconds, trainDelayLevel } from "@/lib/trainDelay";
 import { describeTrainDestination } from "@/lib/trainDestination";
 import { isSameTrain, trainKey } from "@/lib/trainIdentity";
 import { createTrainMotionCache } from "@/lib/trainMotionCache";
-import { sampleTrainMotionAt, trainMotionDistance } from "@/lib/trainPositionInterpolator";
+import {
+  sampleTrainMotionAt,
+  type TrainMotion,
+  trackDistanceNear,
+  trainMotionDistance,
+  trainMotionNextStop,
+  trainMotionSpeed,
+} from "@/lib/trainPositionInterpolator";
+import { createProgressSmoother } from "@/lib/trainProgressSmoother";
 import { createRouteColorLookup, hexToRgb } from "@/lib/trainRouteColors";
 import { useAppContext, useLiveTrainData } from "@/providers/AppProvider";
 import { isTimetableData, type TimetableData } from "@/types/train/timetable";
@@ -37,6 +46,7 @@ const MODEL_PICK_HALF_LENGTH_M = 11;
 const NOMINAL_CAR_LENGTH_M = 20.4;
 // Interpolated positions can sit a few km from the raw feed position, so keep a wide margin
 const NEAR_VIEW_MARGIN_DEGREES = 0.05;
+const REPORTED_SEARCH_WINDOW_M = 3000;
 
 const uniqueTripIds = (tripIds: string[]): string[] => [
   ...new Set(tripIds.filter((tripId) => tripId.trim().length > 0)),
@@ -62,6 +72,13 @@ export const TrainIcons = () => {
   const tracksRef = useRef<TrainTracksResponse>(trainStatic.tracks);
   const routeColorRef = useRef(createRouteColorLookup(trainStatic.tracks.features));
   const motionCacheRef = useRef(createTrainMotionCache());
+  const progressSmootherRef = useRef(createProgressSmoother());
+  const reportedDistancesRef = useRef(
+    new WeakMap<
+      TrainPosition,
+      { motion: TrainMotion; report: { distance: number; targetThen: number } | null }
+    >()
+  );
   const selectedItemRef = useRef(selectedItem);
   const interpolatedRef = useRef(interpolatedTrainMovement);
   const prefetchRetryAtRef = useRef<Map<string, number>>(new Map());
@@ -190,9 +207,45 @@ export const TrainIcons = () => {
         continue;
       }
       const trackLength = motion.path.dists[motion.path.dists.length - 1];
-      const distanceMeters = Math.min(
-        trackLength,
-        Math.max(0, trainMotionDistance(motion, nowEpochSeconds))
+      const timetableDistanceAt = (epochSeconds: number) =>
+        Math.min(trackLength, Math.max(0, trainMotionDistance(motion, epochSeconds)));
+      const target = timetableDistanceAt(nowEpochSeconds);
+      let reported = reportedDistancesRef.current.get(position);
+      if (reported?.motion !== motion) {
+        const distance = trackDistanceNear(
+          motion,
+          position.latitude,
+          position.longitude,
+          target,
+          REPORTED_SEARCH_WINDOW_M
+        );
+        reported = {
+          motion,
+          report:
+            distance != null && position.timestamp != null
+              ? { distance, targetThen: timetableDistanceAt(position.timestamp) }
+              : null,
+        };
+        reportedDistancesRef.current.set(position, reported);
+      }
+      const distanceMeters = progressSmootherRef.current.update(
+        marker.key,
+        {
+          path: motion.path,
+          direction: motion.direction,
+          trackLength,
+          target,
+          speed: trainMotionSpeed(motion, nowEpochSeconds),
+          nextStop: trainMotionNextStop(motion, nowEpochSeconds),
+          reported:
+            reported.report && position.timestamp != null
+              ? {
+                  ...reported.report,
+                  ageSeconds: serverNowMs() / 1000 - position.timestamp,
+                }
+              : null,
+        },
+        now
       );
       const sample = sampleTrainMotionAt(motion, distanceMeters);
       marker.track = { motion, distanceMeters };
@@ -383,6 +436,7 @@ export const TrainIcons = () => {
   useEffect(() => {
     positionsRef.current = trainRealtime.positions.items;
     motionCacheRef.current.retainOnly(trainRealtime.positions.items);
+    progressSmootherRef.current.retainOnly(new Set(trainRealtime.positions.items.map(trainKey)));
     rebuildMarkers();
     schedulePrefetchRef.current?.();
   }, [trainRealtime.positions, rebuildMarkers]);

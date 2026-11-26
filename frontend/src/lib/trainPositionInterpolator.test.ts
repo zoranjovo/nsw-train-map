@@ -7,6 +7,9 @@ import {
   type InterpolatedTrainPosition,
   sampleTrainMotion,
   type TrainMotion,
+  trackDistanceNear,
+  trainMotionNextStop,
+  trainMotionSpeed,
 } from "./trainPositionInterpolator";
 
 const BASE_LAT = -33.9;
@@ -395,5 +398,58 @@ describe("buildTrainMotion with messy timetables", () => {
         expectValid(sampleTrainMotion(motion, time));
       }
     }
+  });
+});
+
+describe("trainMotionSpeed", () => {
+  it("reads the timetable speed right up to each stop", () => {
+    const motion = motionFor(straightStops);
+
+    expect(trainMotionSpeed(motion, T0 + 30.2)).toBeCloseTo(2000 / 270, 6);
+    expect(trainMotionSpeed(motion, T0 + 299.8)).toBeCloseTo(2000 / 270, 6);
+    expect(trainMotionSpeed(motion, T0 + 310)).toBe(0);
+  });
+
+  it("doesn't spike where realtime times leave two stops at the same moment", () => {
+    const motion = motionFor([
+      stop(1, latAt(0), lonAt(0), T0, T0),
+      stop(2, latAt(0), lonAt(2000), T0 + 100, T0 + 230),
+      stop(3, latAt(0), lonAt(4000), T0 + 220, T0 + 400),
+    ]);
+
+    for (const offset of [-0.4, 0, 0.4]) {
+      expect(trainMotionSpeed(motion, T0 + 220 + offset)).toBeLessThan(100);
+    }
+  });
+});
+
+describe("trainMotionNextStop", () => {
+  it("gives the stop the train is heading for, or the one it's waiting at", () => {
+    const motion = motionFor(straightStops);
+
+    expect(trainMotionNextStop(motion, T0 + 100)).toBeCloseTo(2000, 0);
+    expect(trainMotionNextStop(motion, T0 + 310)).toBeCloseTo(2000, 0);
+    expect(trainMotionNextStop(motion, T0 + 10_000)).toBeCloseTo(8000, 0);
+  });
+});
+
+describe("trackDistanceNear", () => {
+  it("prefers the pass nearest the timetable where the track doubles back", () => {
+    const outAndBack = tracks([
+      ...Array.from(
+        { length: 31 },
+        (_, index) => [lonAt(index * 100), latAt(0)] as TrainTrackCoordinate
+      ),
+      ...Array.from(
+        { length: 31 },
+        (_, index) => [lonAt(3000 - index * 100), latAt(60)] as TrainTrackCoordinate
+      ),
+    ]);
+    const motion = motionFor(
+      [stop(1, latAt(0), lonAt(0), T0, T0), stop(2, latAt(0), lonAt(3000), T0 + 150, T0 + 150)],
+      outAndBack
+    );
+
+    expect(trackDistanceNear(motion, latAt(31), lonAt(2500), 2500, 3000)).toBeCloseTo(2500, 0);
   });
 });

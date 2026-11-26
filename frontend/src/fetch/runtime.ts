@@ -1,4 +1,5 @@
 import { getTrainRealtime } from "@/client-api/train";
+import { syncServerClock } from "@/lib/serverClock";
 import type { TrainRealtimeResponse } from "@/types/train/realtime";
 
 const REALTIME_POLL_INTERVAL_MS = 5000;
@@ -26,6 +27,7 @@ export const startRealtimePolling = (
       const data = await getTrainRealtime(controller.signal);
       if (stopped) return;
       consecutiveErrors = 0;
+      if (data.serverTime != null) syncServerClock(data.serverTime);
       onRealtime(data);
     } catch (err) {
       if (stopped) return;
