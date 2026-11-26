@@ -68,7 +68,7 @@ export const TILE_LAYERS: TileLayerOption[] = [
     name: "Satellite",
     background: "#000000",
     attribution:
-      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+      '&copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, GIS User Community',
     style: {
       version: 8,
       sources: {
@@ -78,7 +78,7 @@ export const TILE_LAYERS: TileLayerOption[] = [
           tileSize: 256,
           maxzoom: SATELLITE_MAX_TILE_ZOOM,
           attribution:
-            "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+            '&copy; <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics, GIS User Community',
         },
       },
       layers: [

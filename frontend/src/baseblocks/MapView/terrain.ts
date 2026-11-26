@@ -22,7 +22,7 @@ export const TERRAIN_SOURCE: RasterDEMSourceSpecification = {
   bounds: TERRAIN_BOUNDS,
   encoding: "terrarium",
   attribution:
-    'Elevation: SRTM and GMTED2010 courtesy of the <a href="https://www.usgs.gov/">U.S. Geological Survey</a>, ETOPO1 courtesy of <a href="https://www.noaa.gov/">NOAA</a>, via <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md">Tilezen Joerd</a>',
+    'Elevation: SRTM and GMTED2010 courtesy of the <a href="https://www.usgs.gov/">U.S. Geological Survey</a>, ETOPO1 courtesy of <a href="https://www.noaa.gov/">NOAA</a>, Australia terrain data &copy; Commonwealth of Australia (Geoscience Australia) 2017, via <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md">Tilezen Joerd</a>',
 };
 
 type TerrainTheme = {

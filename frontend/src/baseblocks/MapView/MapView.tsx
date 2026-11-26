@@ -28,6 +28,7 @@ const MAX_PITCH = 75;
 const MIN_ZOOM = 7;
 const MAX_PIXEL_RATIO = 2;
 const SYMBOL_FADE_MS = 300;
+const ATTRIBUTION_VISIBLE_MS = 5000;
 const SYMBOL_FADE_MIN_ZOOM = 14;
 
 // Fading symbols keeps the map redrawing after every train update, which costs more than it saves
@@ -91,13 +92,29 @@ export const MapView = () => {
       if (event.error?.message !== NO_SATELLITE_IMAGERY) console.error(event.error);
     });
 
+    let attributionTimer: ReturnType<typeof setTimeout> | null = null;
+    let attributionOpenedByUser = false;
     const collapseAttribution = () => {
       const attrib = mapInstance.getContainer().querySelector(".maplibregl-ctrl-attrib");
       if (!attrib || attrib.classList.contains("maplibregl-attrib-empty")) return;
-      attrib.classList.remove("maplibregl-compact-show");
       mapInstance.off("styledata", collapseAttribution);
+      attributionTimer = setTimeout(
+        () => attrib.classList.remove("maplibregl-compact-show"),
+        ATTRIBUTION_VISIBLE_MS
+      );
+      attrib.querySelector(".maplibregl-ctrl-attrib-button")?.addEventListener("click", () => {
+        if (attributionTimer) clearTimeout(attributionTimer);
+        attributionOpenedByUser = attrib.classList.contains("maplibregl-compact-show");
+      });
     };
     mapInstance.on("styledata", collapseAttribution);
+    mapInstance.on("drag", () => {
+      if (!attributionOpenedByUser) return;
+      mapInstance
+        .getContainer()
+        .querySelector(".maplibregl-ctrl-attrib")
+        ?.classList.add("maplibregl-compact-show");
+    });
 
     const handler = () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -122,6 +139,7 @@ export const MapView = () => {
     return () => {
       mapInstance.off("moveend", handler);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (attributionTimer) clearTimeout(attributionTimer);
       mapInstance.remove();
       setMap(null);
     };

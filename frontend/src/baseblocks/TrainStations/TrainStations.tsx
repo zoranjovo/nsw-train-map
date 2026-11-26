@@ -2,7 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useAppContext } from "@/providers/AppProvider";
 import type { TrainStopsResponse } from "@/types/train/stops";
 import { isMapRemoved, useMapLibre } from "../MapView/MapContext";
-import { EMPTY_GEOJSON, getGeoJSONSource } from "../MapView/mapSources";
+import { EMPTY_GEOJSON, getGeoJSONSource, TFNSW_ATTRIBUTION } from "../MapView/mapSources";
 import {
   STATION_LABEL_MIN_ZOOM,
   syncTrainOverlayLayerOrder,
@@ -48,6 +48,7 @@ export const TrainStations = () => {
       map.addSource(SOURCE_ID, {
         type: "geojson",
         data: EMPTY_GEOJSON,
+        attribution: TFNSW_ATTRIBUTION,
       });
       map.addLayer({
         id: LAYER_ID,
