@@ -65,7 +65,7 @@ const TRAIN_MOVEMENT_KEY = "train-movement-settings";
 const TRAIN_MOVEMENT_DEFAULTS: TrainMovementSettings = {
   interpolatedTrainMovement: true,
   smoothBackgroundMovement: true,
-  trainModelsOnMap: false,
+  trainModelsOnMap: true,
 };
 
 export const loadTrainMovementSettings = (): TrainMovementSettings => {
