@@ -14,6 +14,7 @@ import { Terrain3D } from "./Terrain3D";
 import { TileLayerSelector } from "./TileLayerSelector";
 import type { TileLayerOption } from "./tileLayers";
 import { NO_SATELLITE_IMAGERY, registerSatelliteProtocol, TILE_LAYERS } from "./tileLayers";
+import { UserLocation } from "./UserLocation";
 
 const DEBOUNCE_MS = 300;
 
@@ -161,6 +162,7 @@ export const MapView = () => {
             terrainEnabled={terrain3d}
             onTerrainChange={setTerrain3d}
           />
+          <UserLocation />
           <FollowTrainButton />
         </MapContext.Provider>
       )}
